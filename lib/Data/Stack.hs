@@ -1,49 +1,89 @@
 module Data.Stack where
 
+import           Control.Monad.ST
 import qualified Data.Vector.Unboxed         as VU
 import qualified Data.Vector.Unboxed.Mutable as VUM
 
-data Stack a = Stack
-  { intVarsStack  :: !(VUM.IOVector Int)
-  , internalStack :: !(VUM.IOVector a)
+data StackIO a = StackIO
+  { intVarsStackIO  :: !(VUM.IOVector Int)
+  , internalStackIO :: !(VUM.IOVector a)
+  }
+
+data StackST s a = StackST
+  { intVarsStackST  :: !(VUM.STVector s Int)
+  , internalStackST :: !(VUM.STVector s a)
   }
 
 _sizeStack :: Int
 _sizeStack = 0
 {-# INLINE _sizeStack #-}
 
-newStack :: VUM.Unbox a => Int -> IO (Stack a)
-newStack n = Stack <$> VUM.replicate 1 0 <*> VUM.unsafeNew n
-
 defaultStackSize :: Int
 defaultStackSize = 1024 * 1024
+{-# INLINE defaultStackSize #-}
 
-popStack :: VUM.Unbox a => Stack a -> IO (Maybe a)
-popStack (Stack info s) = do
+newStackIO :: VUM.Unbox a => Int -> IO (StackIO a)
+newStackIO n = StackIO <$> VUM.replicate 1 0 <*> VUM.unsafeNew n
+
+newStackST :: VUM.Unbox a => Int -> ST s (StackST s a)
+newStackST n = StackST <$> VUM.replicate 1 0 <*> VUM.unsafeNew n
+
+popStackIO :: VUM.Unbox a => StackIO a -> IO (Maybe a)
+popStackIO (StackIO info s) = do
   len <- VUM.unsafeRead info _sizeStack
   if len > 0
     then do
       VUM.unsafeWrite info _sizeStack (len - 1)
       pure <$> VUM.unsafeRead s (len - 1)
     else return Nothing
-{-# INLINE popStack #-}
+{-# INLINE popStackIO #-}
 
-pushStack :: VUM.Unbox a => Stack a -> a -> IO ()
-pushStack (Stack info s) x = do
+popStackST :: VUM.Unbox a => StackST s a -> ST s (Maybe a)
+popStackST (StackST info s) = do
+  len <- VUM.unsafeRead info _sizeStack
+  if len > 0
+    then do
+      VUM.unsafeWrite info _sizeStack (len - 1)
+      pure <$> VUM.unsafeRead s (len - 1)
+    else return Nothing
+{-# INLINE popStackST #-}
+
+pushStackIO :: VUM.Unbox a => StackIO a -> a -> IO ()
+pushStackIO (StackIO info s) x = do
   len <- VUM.unsafeRead info _sizeStack
   VUM.unsafeWrite s len x
   VUM.unsafeWrite info _sizeStack (len + 1)
-{-# INLINE pushStack #-}
+{-# INLINE pushStackIO #-}
 
-pushesStack :: VUM.Unbox a => Stack a -> VU.Vector a -> IO ()
-pushesStack (Stack info s) vec = do
+pushStackST :: VUM.Unbox a => StackST s a -> a -> ST s ()
+pushStackST (StackST info s) x = do
+  len <- VUM.unsafeRead info _sizeStack
+  VUM.unsafeWrite s len x
+  VUM.unsafeWrite info _sizeStack (len + 1)
+{-# INLINE pushStackST #-}
+
+pushesStackIO :: VUM.Unbox a => StackIO a -> VU.Vector a -> IO ()
+pushesStackIO (StackIO info s) vec = do
   len <- VUM.unsafeRead info _sizeStack
   VUM.unsafeWrite info _sizeStack (len + VU.length vec)
   VU.unsafeCopy (VUM.unsafeSlice len (VU.length vec) s) vec
-{-# INLINE pushesStack #-}
+{-# INLINE pushesStackIO #-}
 
-freezeStack :: VUM.Unbox a => Stack a -> IO (VU.Vector a)
-freezeStack (Stack info s) = do
+pushesStackST :: VUM.Unbox a => StackST s a -> VU.Vector a -> ST s ()
+pushesStackST (StackST info s) vec = do
+  len <- VUM.unsafeRead info _sizeStack
+  VUM.unsafeWrite info _sizeStack (len + VU.length vec)
+  VU.unsafeCopy (VUM.unsafeSlice len (VU.length vec) s) vec
+{-# INLINE pushesStackST #-}
+
+freezeStackIO :: VUM.Unbox a => StackIO a -> IO (VU.Vector a)
+freezeStackIO (StackIO info s) = do
   len <- VUM.unsafeRead info _sizeStack
   VU.unsafeFreeze $ VUM.take len s
-{-# INLINE freezeStack #-}
+{-# INLINE freezeStackIO #-}
+
+freezeStackST :: VUM.Unbox a => StackST s a -> ST s (VU.Vector a)
+freezeStackST (StackST info s) = do
+  len <- VUM.unsafeRead info _sizeStack
+  VU.unsafeFreeze $ VUM.take len s
+{-# INLINE freezeStackST #-}
