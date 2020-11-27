@@ -92,6 +92,20 @@ eraseVector (Vec info ptr) left size = do
     VUM.unsafeWrite info (i + left) item
   modifyIORef ptr (subtract size)
 
+swapVector :: VUM.Unbox a => CPPVector a -> CPPVector a -> IO ()
+swapVector (Vec info1 ptr1) (Vec info2 ptr2) = do
+  p1 <- readIORef ptr1
+  p2 <- readIORef ptr2
+  let p = max p1 p2
+  rep p $ \i -> do
+    item1 <- VUM.unsafeRead info1 i
+    item2 <- VUM.unsafeRead info2 i
+    VUM.unsafeWrite info1 i item2
+    VUM.unsafeWrite info2 i item1
+  writeIORef ptr1 p2
+  writeIORef ptr2 p1
+  return ()
+
 clearVector :: VUM.Unbox a => CPPVector a -> IO ()
 clearVector (Vec _ ptr) = writeIORef ptr 0
 
