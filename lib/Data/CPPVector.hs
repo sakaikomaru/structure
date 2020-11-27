@@ -2,6 +2,7 @@
 
 module Data.CPPVector where
 
+import           Control.Monad
 import           Control.Monad.Cont
 import           Control.Monad.ST
 import           Data.IORef
@@ -91,6 +92,13 @@ eraseVector (Vec info ptr) left size = do
     item <- VUM.unsafeRead info (left + size + i)
     VUM.unsafeWrite info (i + left) item
   modifyIORef ptr (subtract size)
+
+eraseIfVector :: VUM.Unbox a => CPPVector a -> (a -> Bool) -> IO ()
+eraseIfVector vec@(Vec info ptr) f = do
+  p <- readIORef ptr
+  rep p $ \i -> do
+    item <- VUM.unsafeRead info i
+    when (f item) $ erasePositionVector vec i
 
 swapVector :: VUM.Unbox a => CPPVector a -> CPPVector a -> IO ()
 swapVector (Vec info1 ptr1) (Vec info2 ptr2) = do

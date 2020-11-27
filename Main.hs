@@ -9,6 +9,6 @@ main = do
   vec2 <- newVector :: IO (CPPVector Int)
   assignVector vec1 (VU.fromList ([1,2,3,4,5,6,7,8,9] :: [Int]))
   assignVector vec2 (VU.fromList ([1,4,9] :: [Int]))
-  swapVector vec1 vec2
+  eraseIfVector vec1 even
   print =<< freezeVector vec1
   print =<< freezeVector vec2
