@@ -17,12 +17,12 @@ import           Data.Bits
 import           Data.Coerce
 import qualified Data.Ratio                        as R
 import           Data.STRef.Strict
+import           GHC.Exts
 import qualified Data.Vector.Fusion.Stream.Monadic as VFSM
 import qualified Data.Vector.Generic               as VG
 import qualified Data.Vector.Generic.Mutable       as VGM
 import qualified Data.Vector.Unboxed               as VU
 import qualified Data.Vector.Unboxed.Mutable       as VUM
-import           GHC.Exts
 
 berlekampMassey :: VU.Vector Mint -> VU.Vector Mint
 berlekampMassey s = VU.map (* (-1)) $ VU.tail $ VU.create $ do
