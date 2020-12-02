@@ -25,13 +25,13 @@ import qualified Data.Vector.Unboxed               as VU
 import qualified Data.Vector.Unboxed.Mutable       as VUM
 
 berlekampMassey :: VU.Vector Mint -> VU.Vector Mint
-berlekampMassey s = VU.map (* (-1)) $ VU.tail $ VU.create $ do
+berlekampMassey s = VU.map (* (-1)) $ VU.create $ do
   let !n = VU.length s
   lRef <- newSTRef (0 :: Int)
   mRef <- newSTRef (0 :: Int)
-  b <- VUM.unsafeNew n :: ST s (VUM.STVector s Mint)
-  c <- VUM.unsafeNew n :: ST s (VUM.STVector s Mint)
-  t <- VUM.unsafeNew n :: ST s (VUM.STVector s Mint)
+  b <- VUM.replicate n 0 :: ST s (VUM.STVector s Mint)
+  c <- VUM.replicate n 0 :: ST s (VUM.STVector s Mint)
+  t <- VUM.replicate n 0 :: ST s (VUM.STVector s Mint)
   bbRef  <- newSTRef (1 :: Mint)
   VUM.unsafeWrite b 0 1
   VUM.unsafeWrite c 0 1
@@ -57,7 +57,7 @@ berlekampMassey s = VU.map (* (-1)) $ VU.tail $ VU.create $ do
         writeSTRef bbRef d
         writeSTRef mRef 0
   l <- readSTRef lRef
-  return $ VUM.unsafeSlice 0 (l + 1) c
+  return $ VUM.unsafeSlice 1 l c
 
 -------------------------------------------------------------------------------
 -- mint
