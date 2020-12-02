@@ -14,6 +14,7 @@ module Matrix where
 import           Control.Monad.Cont
 import           Control.Monad.ST
 import           Data.Bits
+import           Data.Bool
 import           Data.Coerce
 import           Data.IORef
 import qualified Data.Ratio                        as R
@@ -24,6 +25,117 @@ import qualified Data.Vector.Generic               as VG
 import qualified Data.Vector.Generic.Mutable       as VGM
 import qualified Data.Vector.Unboxed               as VU
 import qualified Data.Vector.Unboxed.Mutable       as VUM
+
+type SquareMatrix = VU.Vector Mint
+
+infixr 8 <|^|>
+infixr 7 <|#|>
+infixl 7 <|*|>
+infixl 6 <|+|>, <|-|>
+
+matO :: Int -> SquareMatrix
+matO sz = VU.replicate sz (0 :: Mint)
+
+matE :: Int -> SquareMatrix
+matE sz = VU.imap(\i _ -> bool 0 1 (i `mod` (sz + 1) == 0)) $ VU.replicate (sz * sz) (0 :: Mint)
+
+buildMatrix :: VU.Vector Int -> SquareMatrix
+buildMatrix = VU.map mint
+{-# INLINE buildMatrix #-}
+
+(<|+|>) :: SquareMatrix -> SquareMatrix -> SquareMatrix
+a <|+|> b = VU.zipWith (+) a b
+{-# INLINE (<|+|>) #-}
+
+(<|-|>) :: SquareMatrix -> SquareMatrix -> SquareMatrix
+a <|-|> b = VU.zipWith (-) a b
+{-# INLINE (<|-|>) #-}
+
+(<|*|>) :: SquareMatrix -> SquareMatrix -> SquareMatrix
+a <|*|> b = VU.create $ do
+  c <- VUM.unsafeNew m :: ST s (VUM.STVector s Mint)
+  rep sz $ \i -> rep sz $ \j -> rep sz $ \k -> VUM.unsafeModify c (+ (a VU.! (i * sz + k)) * (b VU.! (k * sz + j))) (i * sz + j)
+  return c
+  where
+    !m  = VU.length a
+    !sz = floor . sqrt . fromIntegral $ m
+
+(<|^|>) :: SquareMatrix -> Int -> SquareMatrix
+a <|^|> n
+  | n == 1    = a
+  | n == 0    = matE sz
+  | even n    = z <|*|> z
+  | otherwise = a <|*|> (z <|*|> z)
+  where
+    z   = a <|^|> (n `div` 2)
+    !m  = VU.length a
+    !sz = floor . sqrt . fromIntegral $ m
+
+(<|#|>) :: Int -> SquareMatrix -> SquareMatrix
+n <|#|> a = VU.map (* mint n) a
+{-# INLINE (<|#|>) #-}
+
+transposeMat :: SquareMatrix -> SquareMatrix
+transposeMat a = VU.create $ do
+  let
+    !n  = VU.length a
+    !sz = floor . sqrt . fromIntegral $ n
+  b <- VUM.unsafeNew n :: ST s (VUM.STVector s Mint)
+  rep sz $ \i -> rep sz $ \j -> do
+    VUM.unsafeWrite b (j * sz + i) (a VU.! (i * sz + j))
+  return b
+
+takeNthRow :: Int -> SquareMatrix -> VU.Vector Mint
+takeNthRow n a = VU.create $ do
+  let
+    !m  = VU.length a
+    !sz = floor . sqrt . fromIntegral $ m
+  b <- VUM.unsafeNew sz :: ST s (VUM.STVector s Mint)
+  rep sz $ \i -> VUM.unsafeWrite b i (a VU.! ((n - 1) * sz + i))
+  return b
+
+takeNthCol :: Int -> SquareMatrix -> VU.Vector Mint
+takeNthCol n a = VU.create $ do
+  let
+    !m  = VU.length a
+    !sz = floor . sqrt . fromIntegral $ m
+  b <- VUM.unsafeNew sz :: ST s (VUM.STVector s Mint)
+  rep sz $ \i -> VUM.unsafeWrite b i (a VU.! (i * sz + (n - 1)))
+  return b
+
+determinant :: Int -> SquareMatrix -> Mint
+determinant sz a = runST $ do
+  retRef <- newSTRef (1 :: Mint)
+  b      <- VU.unsafeThaw a
+  withBreakST $ \break -> rep sz $ \i -> do
+    c <- lift $ check b (-1) i
+    if c == (-1)
+      then do
+        lift $ writeSTRef retRef 0
+        break ()
+      else do
+        when (c /= i) $ lift $ modifySTRef retRef (*(-1))
+        rep sz $ \j -> lift $ VUM.unsafeSwap b (c * sz + j) (i * sz + j)
+        itemii <- VUM.unsafeRead b (i * sz + i)
+        lift $ modifySTRef retRef (*itemii)
+        let inva = (1 :: Mint) / itemii
+        range (i + 1) (sz - 1) $ \j -> do
+          a0 <- VUM.unsafeRead b (j * sz + i)
+          range i (sz - 1) $ \k -> do
+            item <- VUM.unsafeRead b (i * sz + k)
+            VUM.unsafeModify b (subtract (inva * a0 * item)) (j * sz + k)
+  readSTRef retRef
+  where
+    check :: VUM.STVector s Mint -> Int -> Int -> ST s Int
+    check mvec ptr idx = do
+      pRef <- newSTRef ptr
+      withBreakST $ \break -> range idx (sz - 1) $ \j -> do
+        item <- VUM.unsafeRead mvec (j * sz + idx)
+        when (item /= 0) $ do
+          lift $ writeSTRef pRef j
+          break ()
+      readSTRef pRef
+
 
 berlekampMassey :: VU.Vector Mint -> VU.Vector Mint
 berlekampMassey s = VU.map (* (-1)) $ VU.create $ do
