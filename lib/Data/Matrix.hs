@@ -15,6 +15,7 @@ import           Control.Monad.Cont
 import           Control.Monad.ST
 import           Data.Bits
 import           Data.Coerce
+import           Data.IORef
 import qualified Data.Ratio                        as R
 import           Data.STRef.Strict
 import           GHC.Exts
@@ -58,6 +59,41 @@ berlekampMassey s = VU.map (* (-1)) $ VU.create $ do
         writeSTRef mRef 0
   l <- readSTRef lRef
   return $ VUM.unsafeSlice 1 l c
+
+berlekampMasseyIO :: VU.Vector Mint -> IO (VU.Vector Mint)
+berlekampMasseyIO s = do
+  let !n = VU.length s
+  lRef <- newIORef (0 :: Int)
+  mRef <- newIORef (0 :: Int)
+  b <- VUM.replicate n 0 :: IO (VUM.IOVector Mint)
+  c <- VUM.replicate n 0 :: IO (VUM.IOVector Mint)
+  t <- VUM.replicate n 0 :: IO (VUM.IOVector Mint)
+  bbRef <- newIORef (1 :: Mint)
+  VUM.unsafeWrite b 0 1
+  VUM.unsafeWrite c 0 1
+  rep n $ \i -> do
+    modifyIORef' mRef succ
+    dRef <- newIORef (s VU.! i)
+    l <- readIORef lRef
+    rep1' l $ \j -> do
+      cj <- VUM.unsafeRead c j
+      modifyIORef' dRef (+ (cj * (s VU.! (i - j))))
+    d <- readIORef dRef
+    when (d /= 0) $ do
+      VUM.unsafeCopy t c
+      bb <- readIORef bbRef
+      let coef = d / bb
+      m <- readIORef mRef
+      range m (n - 1) $ \j -> do
+        bjm <- VUM.unsafeRead b (j - m)
+        VUM.unsafeModify c (subtract (coef * bjm)) j
+      when (2 * l <= i) $ do
+        modifyIORef' lRef (\ll -> i + 1 - ll)
+        VUM.unsafeMove b t
+        writeIORef bbRef d
+        writeIORef mRef 0
+  l <- readIORef lRef
+  VU.map (*(-1)) <$> VU.unsafeFreeze (VUM.unsafeSlice 1 l c)
 
 -------------------------------------------------------------------------------
 -- mint
