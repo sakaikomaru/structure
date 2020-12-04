@@ -142,6 +142,9 @@ determinant sz a = runST $ do
 
 type SparseMatrix = VUM.IOVector (Int, Int, Mint)
 
+buildSparseMatrix :: VU.Vector (Int, Int, Int) -> IO SparseMatrix
+buildSparseMatrix = VU.unsafeThaw . VU.map (\(x, y, z) -> (x, y, mint z))
+
 nthRandomVector :: Int -> RNG -> IO (VU.Vector Mint)
 nthRandomVector sz rng = do
   mvec <- VUM.unsafeNew sz :: IO (VUM.IOVector Mint)
