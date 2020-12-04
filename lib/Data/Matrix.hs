@@ -30,6 +30,9 @@ import qualified Data.Vector.Generic.Mutable       as VGM
 import qualified Data.Vector.Unboxed               as VU
 import qualified Data.Vector.Unboxed.Mutable       as VUM
 
+-------------------------------------------------------------------------------
+-- matrix
+-------------------------------------------------------------------------------
 type SquareMatrix = VU.Vector Mint
 
 infixr 8 <|^|>
@@ -145,28 +148,28 @@ type SparseMatrix = VUM.IOVector (Int, Int, Mint)
 buildSparseMatrix :: VU.Vector (Int, Int, Int) -> IO SparseMatrix
 buildSparseMatrix = VU.unsafeThaw . VU.map (\(x, y, z) -> (x, y, mint z))
 
-nthRandomVector :: Int -> RNG -> IO (VU.Vector Mint)
+nthRandomVector :: Int -> MT19937 -> IO (VU.Vector Mint)
 nthRandomVector sz rng = do
   mvec <- VUM.unsafeNew sz :: IO (VUM.IOVector Mint)
-  rep sz $ \i -> do
-    x <- nextMint rng
-    VUM.unsafeWrite mvec i (bool 1 x (x /= 0))
+  rep sz $ \i -> VUM.unsafeWrite mvec i . mint =<< randomR rng 1 (modulus - 1)
   VU.unsafeFreeze mvec
 
-determinantOfSparseMatrix :: Int -> RNG -> SparseMatrix -> IO Mint
+determinantOfSparseMatrix :: Int -> MT19937 -> SparseMatrix -> IO Mint
 determinantOfSparseMatrix n rng m = do
   cur <- nthRandomVector n rng
   rep (VUM.length m) $ \i -> VUM.unsafeModify m (\(x, y, v) -> (x, y, v * (cur VU.! y))) i
   ans <- recurrence n rng m
-  let ret = ans VU.! (VU.length ans - 1)
-  return $ (\res -> bool (-res) res (even res)) $ VU.foldl' (/) ret cur
+  let res = VU.foldl' (/) (VU.last ans) cur
+  if even n
+    then return $ res * (- 1)
+    else return res
 
-recurrence :: Int -> RNG -> SparseMatrix -> IO (VU.Vector Mint)
+recurrence :: Int -> MT19937 -> SparseMatrix -> IO (VU.Vector Mint)
 recurrence n rng m = do
   a <- nthRandomVector n rng
   b <- nthRandomVector n rng
-  _a <- VU.unsafeThaw a
-  _b <- VU.unsafeThaw b
+  _a <- VU.unsafeThaw a :: IO (VUM.IOVector Mint)
+  _b <- VU.unsafeThaw b :: IO (VUM.IOVector Mint)
   v <- VUM.unsafeNew ((n + 1) .<<. 1) :: IO (VUM.IOVector Mint)
   range 0 ((n + 1) .<<. 1 - 1) $ \i -> do
     tmp <- newIORef (0 :: Mint)
@@ -255,62 +258,101 @@ berlekampMasseyIO s = do
   VU.map (*(-1)) <$> VU.unsafeFreeze (VUM.unsafeSlice 1 l c)
 
 -------------------------------------------------------------------------------
--- xorshift
+-- mersenne twister
 -------------------------------------------------------------------------------
-type RNG = VUM.IOVector Word64
+_pointer :: Int
+_pointer = 312
+{-# INLINE _pointer #-}
 
-getSeed :: IO Word64
-getSeed = (* 0x3b47f24a) . fromInteger <$> getCPUTime
-{-# NOINLINE getSeed #-}
+_lowerMask :: Word64
+_lowerMask = 0x7FFFFFFF
+{-# INLINE _lowerMask #-}
 
-newRNG :: IO RNG
-newRNG = do
-  x <- getSeed
-  VUM.replicate 1 (8172645463325252 - x)
-{-# NOINLINE newRNG #-}
+_upperMask :: Word64
+_upperMask = 0xFFFFFFFF80000000
+{-# INLINE _upperMask #-}
 
-nextWord64 :: RNG -> IO Word64
-nextWord64 rng = do
-  x <- VUM.unsafeRead rng 0
-  let
-    y = x .<<. 7 .^. x
-    z = y .>>. 9 .^. y
-  VUM.unsafeWrite rng 0 z
-  return z
+type MT19937 = VUM.IOVector Word64
 
-nextInt :: RNG -> IO Int
-nextInt rng = unsafeCoerce <$> nextWord64 rng
+newMT19937 :: Word64 -> IO MT19937
+newMT19937 seed = do
+  mt <- VUM.unsafeNew 313 :: IO MT19937
+  VUM.unsafeWrite mt _pointer 0
+  VUM.unsafeWrite mt 0 seed
+  range 1 311 $ \mti -> do
+    item <- VUM.unsafeRead mt (mti - 1)
+    let rnd = 0x5851F42D4C957F2D * (item .^. (item .>>. 62)) + unsafeCoerce @Int @Word64 mti
+    VUM.unsafeWrite mt mti rnd
+  return mt
 
-nextMint :: RNG -> IO Mint
+newRNG :: IO MT19937
+newRNG = newMT19937 . (fromInteger :: Integer -> Word64) =<< getCPUTime
+
+shiftAndXor :: Word64 -> Word64
+shiftAndXor w0 =
+  case w0 .^. ((w0 .>>. 29) .&. 0x5555555555555555) of
+    w1 -> case w1 .^. ((w1 .<<. 17) .&. 0x71D67FFFEDA60000) of
+      w2 -> case w2 .^. ((w2 .<<. 37) .&. 0xFFF7EEE000000000) of
+        w3 -> w3 .^. (w3 .>>. 43)
+
+twist :: MT19937 -> IO ()
+twist mt = do
+  rep 312 $ \i -> do
+    item1 <- VUM.unsafeRead mt i
+    item2 <- VUM.unsafeRead mt ((i + 1) `mod` 312)
+    let
+      x  = (item1 .&. _upperMask) + (item2 .&. _lowerMask)
+      xA = x .>>. 1
+      xa  = if odd x then xA .^. 0xB5026F5AA96619E9 else xA
+    item3 <- VUM.unsafeRead mt ((i + 156) `mod` 312)
+    VUM.unsafeWrite mt i (item3 .^. xa)
+  VUM.unsafeWrite mt _pointer 0
+
+nextWord64 :: MT19937 -> IO Word64
+nextWord64 mt = do
+  idx <- VUM.unsafeRead mt _pointer
+  when (idx >= 312) $ twist mt
+  y <- shiftAndXor <$> VUM.unsafeRead mt (bool (fromIntegral idx) 0 (idx >= 312))
+  VUM.unsafeModify mt succ _pointer
+  return y
+
+nextInt :: MT19937 -> IO Int
+nextInt mt = unsafeCoerce <$> nextWord64 mt
+
+nextMint :: MT19937 -> IO Mint
 nextMint rng = mint <$> nextInt rng
 
-nextDouble :: RNG -> IO Double
-nextDouble rng = do
-  t <- nextWord64 rng
+nextWord :: MT19937 -> IO Word
+nextWord mt = unsafeCoerce <$> nextWord64 mt
+
+nextDouble :: MT19937 -> IO Double
+nextDouble mt19937 = do
+  t <- nextWord64 mt19937
   let x = 0x3ff .<<. 52 .|. t .>>. 12
   return $! unsafeCoerce @Word64 @Double x - 1.0
 
-nextGauss :: RNG -> Double -> Double -> IO Double
-nextGauss rng mu sigma = do
-  x <- nextDouble rng
-  y <- nextDouble rng
+nextGauss :: MT19937 -> Double -> Double -> IO Double
+nextGauss mt19937 mu sigma = do
+  x <- nextDouble mt19937
+  y <- nextDouble mt19937
   let z = sqrt (-2.0 * log x) * cos (2.0 * pi * y)
   return $! sigma * z + mu
 
-randomR :: RNG -> Int -> Int -> IO Int
-randomR rng l r = (+ l) . flip mod (r - l + 1) <$> nextInt rng
+randomR :: MT19937 -> Int -> Int -> IO Int
+randomR mt19937 l r = (+ l) . flip mod (r - l + 1) <$> nextInt mt19937
 
-shuffleM :: VUM.Unbox a => RNG -> VUM.IOVector a -> IO ()
-shuffleM rng mvec = do
+shuffleM :: VUM.Unbox a => MT19937 -> VUM.IOVector a -> IO ()
+shuffleM mt19937 mvec = do
   rev (VUM.length mvec) $ \i -> do
-    j <- nextWord64 rng
+    j <- nextWord64 mt19937
     VUM.unsafeSwap mvec i (unsafeCoerce $ rem j (unsafeCoerce i + 1))
 
-shuffle :: VU.Unbox a => RNG -> VU.Vector a -> IO (VU.Vector a)
-shuffle rng vec = do
+shuffle :: VU.Unbox a => MT19937 -> VU.Vector a -> IO (VU.Vector a)
+shuffle mt19937 vec = do
   mv <- VU.unsafeThaw vec
-  shuffleM rng mv
+  shuffleM mt19937 mv
   VU.unsafeFreeze mv
+
 
 -------------------------------------------------------------------------------
 -- mint
