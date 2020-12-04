@@ -9,7 +9,7 @@
 {-# LANGUAGE TypeInType                 #-}
 {-# LANGUAGE UnboxedTuples              #-}
 
-module Matrix where
+module Data.Matrix where
 
 import           Control.Monad.Cont
 import           Control.Monad.ST
