@@ -353,7 +353,6 @@ shuffle mt19937 vec = do
   shuffleM mt19937 mv
   VU.unsafeFreeze mv
 
-
 -------------------------------------------------------------------------------
 -- mint
 -------------------------------------------------------------------------------
@@ -530,6 +529,14 @@ rangeR :: Monad m => Int -> Int -> (Int -> m ()) -> m ()
 rangeR r l = flip VFSM.mapM_ (streamR l (r + 1))
 {-# INLINE rangeR #-}
 
+forStep :: Monad m => Int -> Int -> Int -> (Int -> m ()) -> m ()
+forStep l r d = flip VFSM.mapM_ (streamStep l r d)
+{-# INLINE forStep #-}
+
+forStepR :: Monad m => Int -> Int -> Int -> (Int -> m ()) -> m ()
+forStepR r l d = flip VFSM.mapM_ (streamStepR l r d)
+{-# INLINE forStepR #-}
+
 forP :: Monad m => Int -> (Int -> m ()) -> m ()
 forP p = flip VFSM.mapM_ (streamG 2 p (^) 2 (+) 1)
 {-# INLINE forP #-}
@@ -559,6 +566,24 @@ streamR !l !r = VFSM.Stream step (r - 1)
       | otherwise = return VFSM.Done
     {-# INLINE [0] step #-}
 {-# INLINE [1] streamR #-}
+
+streamStep :: Monad m => Int -> Int -> Int -> VFSM.Stream m Int
+streamStep !l !r !d = VFSM.Stream step l
+  where
+    step x
+      | x <= r    = return $ VFSM.Yield x (x + d)
+      | otherwise = return VFSM.Done
+    {-# INLINE [0] step #-}
+{-# INLINE [1] streamStep #-}
+
+streamStepR :: Monad m => Int -> Int -> Int -> VFSM.Stream m Int
+streamStepR !l !r !d = VFSM.Stream step r
+  where
+    step x
+      | x >= l    = return $ VFSM.Yield x (x - d)
+      | otherwise = return VFSM.Done
+    {-# INLINE [0] step #-}
+{-# INLINE [1] streamStepR #-}
 
 streamG :: Monad m => Int -> Int -> (Int -> Int -> Int) -> Int -> (Int -> Int -> Int) -> Int -> VFSM.Stream m Int
 streamG !l !r !f !p !g !d = VFSM.Stream step l
